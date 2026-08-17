@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+
   pull_request:
     branches:
       - main
@@ -18,16 +19,19 @@ env:
 
 jobs:
 
-  # =========================
-  # 1. SCAN STAGE
-  # =========================
+  # =====================================================
+  # 1. SECURITY SCAN + VALIDATION
+  # =====================================================
   scan:
     name: Terraform Security Scan
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
 
     steps:
+
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -44,79 +48,41 @@ jobs:
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: terraform validate
 
-      # Gitleaks - Secret Scan
-      - name: Checkout Code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # =================================================
+      # Gitleaks Secret Scan
+      # =================================================
+      - name: Install Gitleaks
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gitleaks
+
+      - name: Gitleaks Scan
+        run: |
+          gitleaks detect \
+            --source . \
+            --no-banner \
+            --redact
 
 
-  # =========================
-  # 2. PLAN STAGE
-  # =========================
+  # =====================================================
+  # 2. TERRAFORM PLAN
+  # =====================================================
   plan:
     name: Terraform Plan
     needs: scan
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
 
     steps:
+
       - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
+      # =================================================
       # Azure Login using OIDC
-      - name: Azure Login
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Check Azure Login
-        run: az account show
-
-      - name: Terraform Init
-        working-directory: ${{ env.TF_WORKING_DIR }}
-        run: terraform init
-
-      - name: Terraform Validate
-        working-directory: ${{ env.TF_WORKING_DIR }}
-        run: terraform validate
-
-      - name: Terraform Plan
-        working-directory: ${{ env.TF_WORKING_DIR }}
-        run: terraform plan -out=tfplan
-
-      # Save plan for Apply stage
-      - name: Upload Terraform Plan
-        uses: actions/upload-artifact@v4
-        with:
-          name: terraform-plan
-          path: ${{ env.TF_WORKING_DIR }}/tfplan
-
-
-  # =========================
-  # 3. APPLY STAGE
-  # =========================
-  apply:
-    name: Terraform Apply
-    needs: plan
-    runs-on: ubuntu-latest
-
-    # Manual approval configured on GitHub Environment
-    environment:
-      name: production
-
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-
-      # Azure Login
+      # =================================================
       - name: Azure Login
         uses: azure/login@v2
         with:
@@ -125,19 +91,96 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Check Azure Login
-        run: az account show
+        run: |
+          az account show
 
+      # =================================================
+      # Terraform Init
+      # =================================================
       - name: Terraform Init
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: terraform init
 
-      # Download plan generated in Plan stage
+      # =================================================
+      # Terraform Validate
+      # =================================================
+      - name: Terraform Validate
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform validate
+
+      # =================================================
+      # Terraform Plan
+      # =================================================
+      - name: Terraform Plan
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          terraform plan \
+            -out=tfplan \
+            -var="cnt=2"
+
+      # =================================================
+      # Upload Terraform Plan
+      # =================================================
+      - name: Upload Terraform Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan
+          path: ${{ env.TF_WORKING_DIR }}/tfplan
+
+
+  # =====================================================
+  # 3. TERRAFORM APPLY
+  # =====================================================
+  apply:
+    name: Terraform Apply
+    needs: plan
+    runs-on: self-hosted
+
+    # GitHub Environment should have required approval
+    environment:
+      name: production
+
+    steps:
+
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      # =================================================
+      # Azure Login using OIDC
+      # =================================================
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Check Azure Login
+        run: |
+          az account show
+
+      # =================================================
+      # Terraform Init
+      # =================================================
+      - name: Terraform Init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform init
+
+      # =================================================
+      # Download Plan
+      # =================================================
       - name: Download Terraform Plan
         uses: actions/download-artifact@v4
         with:
           name: terraform-plan
           path: ${{ env.TF_WORKING_DIR }}
 
+      # =================================================
+      # Terraform Apply
+      # =================================================
       - name: Terraform Apply
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: terraform apply -auto-approve tfplan
