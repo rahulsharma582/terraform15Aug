@@ -1,0 +1,12 @@
+﻿{
+  "repositoryName": "rahulsharma582/terraform15Aug",
+  "pipelineDirectory": "terraform15Aug",
+  "workspaceDirectory": "terraform15Aug\\terraform15Aug",
+  "repositories": {
+    "rahulsharma582/terraform15Aug": {
+      "repositoryPath": "terraform15Aug\\terraform15Aug",
+      "lastRunOn": "08/18/2026 02:00:29 +05:30"
+    }
+  },
+  "lastRunOn": "08/18/2026 02:00:29 +05:30"
+}
