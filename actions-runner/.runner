@@ -1,0 +1,11 @@
+﻿{
+  "agentId": 21,
+  "agentName": "DESKTOP-8CC8EFK",
+  "poolId": 1,
+  "poolName": "Default",
+  "serverUrl": "https://pipelinesghubeus14.actions.githubusercontent.com/y8lifPeM7LoSev5b8ZD7afup9AuljtieLTtckKzCN1Ij2ZZudF/",
+  "gitHubUrl": "https://github.com/rahulsharma582/terraform15Aug",
+  "workFolder": "_work",
+  "useV2Flow": true,
+  "serverUrlV2": "https://broker.actions.githubusercontent.com/"
+}
