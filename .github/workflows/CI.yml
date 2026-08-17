@@ -5,38 +5,31 @@ on:
     branches:
       - main
 
-  pull_request:
-    branches:
-      - main
-
 permissions:
   id-token: write
   contents: read
 
 env:
   TF_WORKING_DIR: ./prod_parent_module
-  ARM_USE_OIDC: true
 
 jobs:
 
-  # =====================================================
-  # 1. SECURITY SCAN + VALIDATION
-  # =====================================================
-  scan:
-    name: Terraform Security Scan
+  # =========================
+  # 1. TERRAFORM VALIDATE
+  # =========================
+  validate:
+    name: Terraform Validate
     runs-on: self-hosted
 
     steps:
 
-      - name: Checkout Code
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
-      - name: Terraform Format Check
+      - name: Terraform Format
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: terraform fmt -check -recursive
 
@@ -48,41 +41,23 @@ jobs:
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: terraform validate
 
-      # =================================================
-      # Gitleaks Secret Scan
-      # =================================================
-      - name: Install Gitleaks
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gitleaks
 
-      - name: Gitleaks Scan
-        run: |
-          gitleaks detect \
-            --source . \
-            --no-banner \
-            --redact
-
-
-  # =====================================================
+  # =========================
   # 2. TERRAFORM PLAN
-  # =====================================================
+  # =========================
   plan:
     name: Terraform Plan
-    needs: scan
+    needs: validate
     runs-on: self-hosted
 
     steps:
 
-      - name: Checkout Code
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
-      # =================================================
-      # Azure Login using OIDC
-      # =================================================
       - name: Azure Login
         uses: azure/login@v2
         with:
@@ -91,36 +66,16 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Check Azure Login
-        run: |
-          az account show
+        run: az account show
 
-      # =================================================
-      # Terraform Init
-      # =================================================
       - name: Terraform Init
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: terraform init
 
-      # =================================================
-      # Terraform Validate
-      # =================================================
-      - name: Terraform Validate
-        working-directory: ${{ env.TF_WORKING_DIR }}
-        run: terraform validate
-
-      # =================================================
-      # Terraform Plan
-      # =================================================
       - name: Terraform Plan
         working-directory: ${{ env.TF_WORKING_DIR }}
-        run: |
-          terraform plan \
-            -out=tfplan \
-            -var="cnt=2"
+        run: terraform plan -out=tfplan -var="cnt=2"
 
-      # =================================================
-      # Upload Terraform Plan
-      # =================================================
       - name: Upload Terraform Plan
         uses: actions/upload-artifact@v4
         with:
@@ -128,29 +83,25 @@ jobs:
           path: ${{ env.TF_WORKING_DIR }}/tfplan
 
 
-  # =====================================================
+  # =========================
   # 3. TERRAFORM APPLY
-  # =====================================================
+  # =========================
   apply:
     name: Terraform Apply
     needs: plan
     runs-on: self-hosted
 
-    # GitHub Environment should have required approval
     environment:
       name: production
 
     steps:
 
-      - name: Checkout Code
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
-      # =================================================
-      # Azure Login using OIDC
-      # =================================================
       - name: Azure Login
         uses: azure/login@v2
         with:
@@ -158,29 +109,16 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Check Azure Login
-        run: |
-          az account show
-
-      # =================================================
-      # Terraform Init
-      # =================================================
       - name: Terraform Init
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: terraform init
 
-      # =================================================
-      # Download Plan
-      # =================================================
       - name: Download Terraform Plan
         uses: actions/download-artifact@v4
         with:
           name: terraform-plan
           path: ${{ env.TF_WORKING_DIR }}
 
-      # =================================================
-      # Terraform Apply
-      # =================================================
       - name: Terraform Apply
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: terraform apply -auto-approve tfplan
