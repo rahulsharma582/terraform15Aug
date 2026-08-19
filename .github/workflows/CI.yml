@@ -1,63 +1,117 @@
-name: Terraform CI-CD
+name: Terraform CI Pipeline
 
 on:
   push:
     branches:
+      - "features/**"
       - main
+
   pull_request:
     branches:
       - main
 
 permissions:
-  id-token: write
   contents: read
+  id-token: write
 
 env:
   TF_WORKING_DIR: ./prod_parent_module
+  TF_IN_AUTOMATION: true
   ARM_USE_OIDC: true
+  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
 jobs:
 
-  # =========================
-  # 1. SCAN STAGE
-  # =========================
-  scan:
-    name: Terraform Security Scan
-    runs-on: ubuntu-latest
+  # ============================================================
+  # 1. GITLEAKS SECURITY SCAN
+  # ============================================================
+  security-scan:
+    name: Security Scan - Gitleaks
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify Gitleaks
+        shell: powershell
+        run: |
+          gitleaks version
+
+      - name: Run Gitleaks
+        shell: powershell
+        run: |
+             gitleaks detect --source . --verbose --report-format json --report-path gitleaks-report.json
+  # ============================================================
+  # 2. TERRAFORM FORMAT AND VALIDATE
+  # ============================================================
+  terraform-check:
+    name: Terraform Format and Validate
+    runs-on: self-hosted
+    needs: security-scan
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Verify Folder Structure
+        shell: powershell
+        run: |
+          Write-Host "Current directory:"
+          Get-Location
+
+          Write-Host ""
+          Write-Host "Repository structure:"
+          Get-ChildItem
+
+          Write-Host ""
+          Write-Host "prod_parent_module:"
+          Get-ChildItem .\prod_parent_module
+
+          Write-Host ""
+          Write-Host "child_module:"
+          Get-ChildItem .\child_module
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
-      - name: Terraform Format Check
+      - name: Terraform Version
+        run: terraform version
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Terraform Format
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform fmt -recursive
+
+      - name: Check Terraform Formatting
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: terraform fmt -check -recursive
 
       - name: Terraform Init
         working-directory: ${{ env.TF_WORKING_DIR }}
-        run: terraform init -backend=false
+        run: terraform init -input=false
 
       - name: Terraform Validate
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: terraform validate
 
-      # Gitleaks - Secret Scan
-      - name: Gitleaks Scan
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-
-  # =========================
-  # 2. PLAN STAGE
-  # =========================
-  plan:
+  # ============================================================
+  # 3. TERRAFORM PLAN
+  # ============================================================
+  terraform-plan:
     name: Terraform Plan
-    needs: scan
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
+    needs: terraform-check
 
     steps:
       - name: Checkout Code
@@ -66,7 +120,9 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
-      # Azure Login using OIDC
+      - name: Terraform Version
+        run: terraform version
+
       - name: Azure Login
         uses: azure/login@v2
         with:
@@ -74,70 +130,10 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Check Azure Login
-        run: az account show
-
       - name: Terraform Init
         working-directory: ${{ env.TF_WORKING_DIR }}
-        run: terraform init
-
-      - name: Terraform Validate
-        working-directory: ${{ env.TF_WORKING_DIR }}
-        run: terraform validate
+        run: terraform init -input=false
 
       - name: Terraform Plan
         working-directory: ${{ env.TF_WORKING_DIR }}
-        run: terraform plan -out=tfplan
-
-      # Save plan for Apply stage
-      - name: Upload Terraform Plan
-        uses: actions/upload-artifact@v4
-        with:
-          name: terraform-plan
-          path: ${{ env.TF_WORKING_DIR }}/tfplan
-
-
-  # =========================
-  # 3. APPLY STAGE
-  # =========================
-  apply:
-    name: Terraform Apply
-    needs: plan
-    runs-on: ubuntu-latest
-
-    # Manual approval configured on GitHub Environment
-    environment:
-      name: production
-
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-
-      # Azure Login
-      - name: Azure Login
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Check Azure Login
-        run: az account show
-
-      - name: Terraform Init
-        working-directory: ${{ env.TF_WORKING_DIR }}
-        run: terraform init
-
-      # Download plan generated in Plan stage
-      - name: Download Terraform Plan
-        uses: actions/download-artifact@v4
-        with:
-          name: terraform-plan
-          path: ${{ env.TF_WORKING_DIR }}
-
-      - name: Terraform Apply
-        working-directory: ${{ env.TF_WORKING_DIR }}
-        run: terraform apply -auto-approve tfplan
+        run: terraform plan -input=false
