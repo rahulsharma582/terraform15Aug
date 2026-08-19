@@ -24,6 +24,9 @@ env:
 
 jobs:
 
+  # ============================================================
+  # 1. GITLEAKS SECURITY SCAN
+  # ============================================================
   security-scan:
     name: Security Scan - Gitleaks
     runs-on: self-hosted
@@ -34,11 +37,19 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Run Gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify Gitleaks
+        shell: powershell
+        run: |
+          gitleaks version
 
+      - name: Run Gitleaks
+        shell: powershell
+        run: |
+          gitleaks detect --source . --verbose
+
+  # ============================================================
+  # 2. TERRAFORM FORMAT AND VALIDATE
+  # ============================================================
   terraform-check:
     name: Terraform Format and Validate
     runs-on: self-hosted
@@ -95,6 +106,9 @@ jobs:
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: terraform validate
 
+  # ============================================================
+  # 3. TERRAFORM PLAN
+  # ============================================================
   terraform-plan:
     name: Terraform Plan
     runs-on: self-hosted
