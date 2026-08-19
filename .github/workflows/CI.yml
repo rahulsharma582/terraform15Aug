@@ -45,8 +45,7 @@ jobs:
       - name: Run Gitleaks
         shell: powershell
         run: |
-          gitleaks detect --source . --verbose
-
+             gitleaks detect --source . --verbose --report-format json --report-path gitleaks-report.json
   # ============================================================
   # 2. TERRAFORM FORMAT AND VALIDATE
   # ============================================================
